@@ -246,6 +246,7 @@ static void SaveAudioDevice(const char *name, int channel, obs_data_t *parent,
 }
 
 static obs_data_t *GenerateSaveData(obs_data_array_t *sceneOrder,
+		obs_data_array_t *quickTransitionData,
 		int transitionDuration, OBSScene &scene)
 {
 	obs_data_t *saveData = obs_data_create();
@@ -283,6 +284,7 @@ static obs_data_t *GenerateSaveData(obs_data_array_t *sceneOrder,
 	obs_data_set_array(saveData, "scene_order", sceneOrder);
 	obs_data_set_string(saveData, "name", sceneCollection);
 	obs_data_set_array(saveData, "sources", sourcesArray);
+	obs_data_set_array(saveData, "quick_transitions", quickTransitionData);
 	obs_data_array_release(sourcesArray);
 
 	obs_data_set_string(saveData, "current_transition",
@@ -344,7 +346,8 @@ void OBSBasic::Save(const char *file)
 {
 	OBSScene scene = GetCurrentScene();
 	obs_data_array_t *sceneOrder = SaveSceneListOrder();
-	obs_data_t *saveData  = GenerateSaveData(sceneOrder,
+	obs_data_array_t *quickTrData = SaveQuickTransitions();
+	obs_data_t *saveData  = GenerateSaveData(sceneOrder, quickTrData,
 			ui->transitionDuration->value(), scene);
 
 	if (!obs_data_save_json_safe(saveData, file, "tmp", "bak"))
@@ -352,6 +355,7 @@ void OBSBasic::Save(const char *file)
 
 	obs_data_release(saveData);
 	obs_data_array_release(sceneOrder);
+	obs_data_array_release(quickTrData);
 }
 
 static void LoadAudioDevice(const char *name, int channel, obs_data_t *parent)
@@ -406,6 +410,7 @@ void OBSBasic::CreateDefaultScene(bool firstStart)
 
 	ClearSceneData();
 	InitDefaultTransitions();
+	CreateDefaultQuickTransitions();
 	ui->transitionDuration->setValue(300);
 	SetTransition(fadeTransition);
 
@@ -414,8 +419,8 @@ void OBSBasic::CreateDefaultScene(bool firstStart)
 	if (firstStart)
 		CreateFirstRunSources();
 
-	SetCurrentScene(scene, true);
 	AddScene(obs_scene_get_source(scene));
+	SetCurrentScene(scene, true);
 	obs_scene_release(scene);
 
 	disableSaving--;
@@ -520,6 +525,8 @@ void OBSBasic::Load(const char *file)
 
 	curScene = obs_get_source_by_name(sceneName);
 	SetCurrentScene(curScene, true);
+	if (IsPreviewProgramMode())
+		TransitionToScene(curScene, true);
 	obs_source_release(curScene);
 
 	obs_data_array_release(sources);
@@ -532,6 +539,13 @@ void OBSBasic::Load(const char *file)
 			name);
 	config_set_string(App()->GlobalConfig(), "Basic", "SceneCollectionFile",
 			file_base.c_str());
+
+	obs_data_array_t *quickTransitionData = obs_data_get_array(data,
+			"quick_transitions");
+	LoadQuickTransitions(quickTransitionData);
+	obs_data_array_release(quickTransitionData);
+
+	RefreshQuickTransitions();
 
 	obs_data_release(data);
 
@@ -926,6 +940,9 @@ void OBSBasic::OBSInit()
 		QMetaObject::invokeMethod(this, "TogglePreview",
 				Qt::QueuedConnection);
 
+	SetPreviewProgramMode(config_get_bool(App()->GlobalConfig(),
+				"BasicWindow", "PreviewProgramMode"));
+
 #ifdef _WIN32
 	uint32_t winVer = GetWindowsVersion();
 	if (winVer > 0 && winVer < 0x602) {
@@ -1148,6 +1165,9 @@ OBSBasic::~OBSBasic()
 {
 	bool previewEnabled = obs_display_enabled(ui->preview->GetDisplay());
 
+	delete programOptions;
+	delete program;
+
 	/* XXX: any obs data must be released before calling obs_shutdown.
 	 * currently, we can't automate this with C++ RAII because of the
 	 * delicate nature of obs_shutdown needing to be freed before the UI
@@ -1215,6 +1235,8 @@ OBSBasic::~OBSBasic()
 			splitterSizes[1]);
 	config_set_bool(App()->GlobalConfig(), "BasicWindow", "PreviewEnabled",
 			previewEnabled);
+	config_set_bool(App()->GlobalConfig(), "BasicWindow",
+			"PreviewProgramMode", IsPreviewProgramMode());
 	config_save_safe(App()->GlobalConfig(), "tmp", nullptr);
 
 #ifdef _WIN32
@@ -1227,9 +1249,6 @@ OBSBasic::~OBSBasic()
 		}
 	}
 #endif
-
-	delete programOptions;
-	delete program;
 }
 
 void OBSBasic::SaveProjectNow()
@@ -2036,7 +2055,8 @@ void OBSBasic::RenderMain(void *data, uint32_t cx, uint32_t cy)
 	if (window->IsPreviewProgramMode()) {
 		OBSScene scene = window->GetCurrentScene();
 		obs_source_t *source = obs_scene_get_source(scene);
-		obs_source_video_render(source);
+		if (source)
+			obs_source_video_render(source);
 	} else {
 		obs_render_main_view();
 	}
@@ -2277,6 +2297,8 @@ void OBSBasic::ClearSceneData()
 	ClearVolumeControls();
 	ClearListItems(ui->scenes);
 	ClearListItems(ui->sources);
+	ClearQuickTransitions();
+	ui->transitions->clear();
 
 	obs_set_output_source(0, nullptr);
 	obs_set_output_source(1, nullptr);
@@ -2284,6 +2306,7 @@ void OBSBasic::ClearSceneData()
 	obs_set_output_source(3, nullptr);
 	obs_set_output_source(4, nullptr);
 	obs_set_output_source(5, nullptr);
+	lastScene = nullptr;
 
 	auto cb = [](void *unused, obs_source_t *source)
 	{
@@ -2293,9 +2316,6 @@ void OBSBasic::ClearSceneData()
 	};
 
 	obs_enum_sources(cb, nullptr);
-
-	ui->transitions->clear();
-	transitions.clear();
 
 	disableSaving--;
 

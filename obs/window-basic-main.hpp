@@ -60,12 +60,17 @@ enum class QtDataRole {
 };
 
 struct QuickTransition {
+	QLayout *layout = nullptr;
+	QPushButton *button = nullptr;
 	OBSSource source;
 	int duration = 0;
+	int id = 0;
 
 	inline QuickTransition() {}
-	inline QuickTransition(OBSSource source_, int duration_)
-		: source(source_), duration(duration_)
+	inline QuickTransition(OBSSource source_, int duration_, int id_)
+		: source   (source_),
+		  duration (duration_),
+		  id       (id_)
 	{}
 };
 
@@ -212,21 +217,34 @@ private:
 	void SetTransition(obs_source_t *transition);
 	OBSSource GetCurrentTransition();
 
-	std::vector<OBSSource> transitions;
 	obs_source_t *fadeTransition;
 
 	void CreateProgramDisplay();
 	void CreateProgramOptions();
+	void AddQuickTransitionId(int id);
+	void AddQuickTransition();
+	void LoadQuickTransitions(obs_data_array_t *array);
+	obs_data_array_t *SaveQuickTransitions();
+	void RefreshQuickTransitions();
+	void CreateDefaultQuickTransitions();
 
-	void SetQuickTransition(int idx);
+	QuickTransition *GetQuickTransition(int id);
+	int GetQuickTransitionIdx(int id);	
+	void ClearQuickTransitions();
+	void QuickTransitionClicked();
+	void QuickTransitionResetClicked();
+	void QuickTransitionRemoveClicked();
+
+	void SetPreviewProgramMode(bool enabled);
 	void ResizeProgram(uint32_t cx, uint32_t cy);
 	void SetCurrentScene(obs_scene_t *scene, bool force = false);
 	void SetCurrentScene(obs_source_t *scene, bool force = false);
 	static void RenderProgram(void *data, uint32_t cx, uint32_t cy);
 
-	std::vector<QuickTransition> quickTranstions;
+	std::vector<QuickTransition> quickTransitions;
 	QPointer<QWidget> programOptions;
 	QPointer<OBSQTDisplay> program;
+	OBSSource lastScene;
 	volatile bool previewProgramMode = false;
 
 	int   programX = 0,  programY = 0;

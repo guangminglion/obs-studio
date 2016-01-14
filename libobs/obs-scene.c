@@ -762,6 +762,9 @@ obs_scene_t *obs_scene_duplicate(obs_scene_t *scene, const char *name,
 	bool make_unique  = ((int)type & (1<<0)) != 0;
 	bool make_private = ((int)type & (1<<1)) != 0;
 
+	if (!obs_ptr_valid(scene, "obs_scene_duplicate"))
+		return NULL;
+
 	struct obs_scene *new_scene = make_private ?
 		obs_scene_create_private(name) : obs_scene_create(name);
 	struct obs_scene_item *item = scene->first_item;

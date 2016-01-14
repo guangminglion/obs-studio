@@ -1045,6 +1045,7 @@ EXPORT void obs_transition_get_size(const obs_source_t *transition,
  */
 EXPORT void obs_transition_enable_fixed(obs_source_t *transition, bool enable,
 		uint32_t duration_ms);
+EXPORT bool obs_transition_fixed(obs_source_t *transition);
 
 typedef void (*obs_transition_video_render_callback_t)(void *data,
 		gs_texture_t *a, gs_texture_t *b, float t,
